@@ -1,0 +1,33 @@
+{
+	"name": "Galaxy",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"Packages": {
+				"$className": "Folder",
+				"Galaxy": {
+					"$path": "src"
+				}
+			},
+			"Shared": {
+				"$path": "test/shared"
+			}
+		},
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"Server": {
+				"$path": "test/server"
+			}
+		},
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"StarterPlayerScripts": {
+				"$className": "StarterPlayerScripts",
+				"Client": {
+					"$path": "test/client"
+				}
+			}
+		}
+	}
+}
