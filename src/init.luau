@@ -8,7 +8,7 @@
     • ⚡ Optimized for performance
     • 🛡️ Type-safe with Luau
     
-    Version: 0.2.0
+    Version: 1.0.0
     Author: ArtisticVampyre
 --]]
 
@@ -20,11 +20,10 @@ local RunService: RunService = game:GetService("RunService")
 type LaunchParams = {
 	Modules: { Instance },
 	Systems: { Instance },
-	Config: { [string]: any },
 }
 
 -- 🌟 Main Module
-local Galaxy = { _VERSION = "0.2.0" }
+local Galaxy = { _VERSION = "1.0.0" }
 
 -- 🎯 Environment Detection
 local SystemKey: string = RunService:IsServer() and "service" or "controller"
@@ -35,11 +34,22 @@ local ModulesLoading: { [ModuleScript]: boolean } = {}
 local LoadedModules: { [ModuleScript]: any } = {}
 local Modules: { [string]: ModuleScript } = {}
 local Systems: { [string]: any } = {}
-local Config: { [string]: any } = {}
 
--- 🔄 Module Loading Functions
--- Adds a metatable to a temporary module table to let access operations fall
--- through to the original module table.
+-----------------------------------------------------
+-- Helper Functions
+-----------------------------------------------------
+
+-- Count the number of ancestors for a given instance.
+local function countAncestors(instance: Instance): number
+	local count = 0
+	while instance.Parent do
+		count += 1
+		instance = instance.Parent
+	end
+	return count
+end
+
+-- Adds a metatable to a temporary module table so that operations
 local function _switchTemp(moduleName: string, moduleData: any)
 	local loadedModule = LoadedModules[Modules[moduleName]]
 	loadedModule.IsFakeModule = nil
@@ -75,27 +85,26 @@ local function _load(module: ModuleScript): any?
 	return nil
 end
 
--- 📚 Module Indexing Functions
--- Adds all available aliases for a ModuleScript to the internal index registry,
--- up to the specified number of ancestors (0 refers to the script itself,
--- indexes all ancestors if no cap specified)
+-- Adds a ModuleScript to the internal registry, checking for duplicates.
 local function _indexNames(child: ModuleScript)
-	if typeof(child) ~= "Instance" then
+	if not child:IsA("Instance") then
 		return
 	end
 
-	local index = child.Name
+	local name = child.Name
 
-	if Modules[index] and not Config.AllowDuplicates then
-		warn(
-			("⚠️ Duplicate module name found for '%s'!\nPlease ensure module names are unique. Check module definitions and aliases."):format(
-				index
-			)
-		)
-		return
+	if Modules[name] then
+		local existingCount = countAncestors(Modules[name])
+		local newCount = countAncestors(child)
+		if newCount < existingCount then
+			Modules[name] = child
+		else
+			-- Optionally warn about duplicate module names:
+			-- warn(("⚠️ Duplicate module name '%s' detected. Keeping version with fewer ancestors."):format(name))
+		end
+	else
+		Modules[name] = child
 	end
-
-	Modules[index] = child
 end
 
 -- Indexes any ModuleScript children of the specified Instance
@@ -111,7 +120,11 @@ local function _indexModules(location: Instance)
 	end
 end
 
--- 🛠️ System Management
+-----------------------------------------------------
+-- System Management
+-----------------------------------------------------
+
+-- Loads internal modules for a system from designated directories.
 local function _loadInternal(system, rootModule: ModuleScript)
 	local internal = system.DirectoriesToLoad
 	if not internal then
@@ -153,19 +166,18 @@ local function _loadInternal(system, rootModule: ModuleScript)
 	end
 end
 
--- 🎮 System Initialization
+-- Initializes systems by indexing ModuleScripts that match the system key.
 local function _indexSystems(location: Instance)
 	for _, descendant: ModuleScript in location:GetDescendants() do
 		if descendant:IsA("ModuleScript") and descendant ~= script then
-			local childIndex = string.lower(descendant.Name)
-			if string.find(childIndex, SystemKey) then
+			local childIndex = descendant.Name:lower()
+			if childIndex:find(SystemKey) then
 				local activeSystem = _load(descendant)
-
 				if activeSystem then
-					if root then
-						_loadInternal(activeSystem, root :: Folder)
-					end
+					-- Use the current ModuleScript as the root for internal modules.
+					_loadInternal(activeSystem, descendant)
 					Systems[descendant.Name] = activeSystem
+					-- Rename the module to avoid collisions.
 					descendant.Name = HttpService:GenerateGUID()
 				end
 			end
@@ -173,47 +185,54 @@ local function _indexSystems(location: Instance)
 	end
 end
 
+-----------------------------------------------------
 -- 🛡️ Fake Module Protection
+-----------------------------------------------------
+
 local FakeModule = { IsFakeModule = true }
 setmetatable(FakeModule, CycleMetatable)
 
+-----------------------------------------------------
 -- 🚀 Core API
+-----------------------------------------------------
+
 function Galaxy.__call(_: {}, module: string | ModuleScript): any?
 	if typeof(module) == "Instance" then
 		return _load(module)
 	end
 
 	local mod = Modules[module]
-	if mod then
-		if LoadedModules[mod] then
-			return LoadedModules[mod]
-		end
 
-		if not ModulesLoading[mod] then
-			ModulesLoading[mod] = true
-			local moduleData = _load(mod)
-			if LoadedModules[mod] then
-				_switchTemp(module, moduleData)
-			else
-				LoadedModules[mod] = moduleData
-			end
-			ModulesLoading[mod] = nil
+	if not mod then
+		warn(`❗️Module '{module}' not found! 🚫`)
+		LoadedModules[mod] = FakeModule
+		return
+	end
+
+	if LoadedModules[mod] then
+		return LoadedModules[mod]
+	end
+
+	if not ModulesLoading[mod] then
+		ModulesLoading[mod] = true
+		local moduleData = _load(mod)
+		if LoadedModules[mod] then
+			_switchTemp(module, moduleData)
+		else
+			LoadedModules[mod] = moduleData
 		end
-	else
-		warn(("❗️Module '%s' not found! 🚫"):format(module))
-		LoadedModules[mod] = FakeModule -- Reuse a shared object
+		ModulesLoading[mod] = nil
 	end
 
 	return LoadedModules[mod]
 end
 
+-----------------------------------------------------
 -- 🎯 Framework Launch
+-----------------------------------------------------
+
 function Galaxy.Launch(launchParams: LaunchParams)
 	assert(typeof(launchParams) == "table", `Expected table, got {typeof(launchParams)}`)
-
-	if launchParams.Config then
-		Config = launchParams.Config
-	end
 
 	for _, moduleRoot: Instance in launchParams.Modules do
 		_indexModules(moduleRoot)
@@ -236,7 +255,10 @@ function Galaxy.Launch(launchParams: LaunchParams)
 	end
 end
 
--- ⚡ Metatable Setup
+-----------------------------------------------------
+-- 🛰️ Metatable Setup
+-----------------------------------------------------
+
 setmetatable(shared, Galaxy)
 setmetatable(Galaxy, Galaxy)
 
